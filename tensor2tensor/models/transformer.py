@@ -319,7 +319,7 @@ class Transformer(t2t_model.T2TModel):
             features["target_space_id"],
             hparams,
             features=features)
-      encoder_output = encoder_output[0]
+      encoder_output = encoder_output[0, 0]
       encoder_decoder_attention_bias = encoder_decoder_attention_bias[0]
       partial_targets = None
     else:
@@ -544,7 +544,7 @@ class Transformer(t2t_model.T2TModel):
             features["target_space_id"],
             hparams,
             features=features)
-      encoder_output = encoder_output[0]
+      encoder_output = encoder_output[0, 0]
       encoder_decoder_attention_bias = encoder_decoder_attention_bias[0]
       partial_targets = None
     else:
@@ -1199,6 +1199,7 @@ def transformer_encoder(encoder_input,
     y: a Tensors
   """
   x = encoder_input
+  ys = []
   attention_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
           getattr(hparams, "attention_dropout_broadcast_dims", "")))
@@ -1241,10 +1242,11 @@ def transformer_encoder(encoder_input,
               nonpadding_mask=nonpadding,
               losses=losses)
           x = common_layers.layer_postprocess(x, y, hparams)
+      ys.append(common_layers.layer_preprocess(x, hparams))
     # if normalization is done in layer_preprocess, then it should also be done
     # on the output, since the output can grow very large, being the sum of
     # a whole stack of unnormalized layer outputs.
-    return common_layers.layer_preprocess(x, hparams)
+    return tf.stack(ys.reverse())
 
 
 def transformer_decoder(decoder_input,
@@ -1293,7 +1295,7 @@ def transformer_decoder(decoder_input,
       common_layers.comma_separated_string_to_integer_list(
           getattr(hparams, "attention_dropout_broadcast_dims", "")))
   with tf.variable_scope(name):
-    for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
+    for layer in range(hparams.num_hidden_layers):
       layer_name = "layer_%d" % layer
       layer_cache = cache[layer_name] if cache is not None else None
       with tf.variable_scope(layer_name):
@@ -1321,7 +1323,7 @@ def transformer_decoder(decoder_input,
           with tf.variable_scope("encdec_attention"):
             y = common_attention.multihead_attention(
                 common_layers.layer_preprocess(x, hparams),
-                encoder_output,
+                encoder_output[layer],
                 encoder_decoder_attention_bias,
                 hparams.attention_key_channels or hparams.hidden_size,
                 hparams.attention_value_channels or hparams.hidden_size,
